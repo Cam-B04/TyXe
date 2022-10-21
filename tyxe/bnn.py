@@ -1,15 +1,12 @@
 from collections import defaultdict
 import itertools
 from operator import itemgetter
-
 import torch
-
 import pyro.nn as pynn
 import pyro.poutine as poutine
 from pyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO, MCMC
-
 from . import util
-
+import time
 
 __all__ = ["PytorchBNN", "VariationalBNN", "MCMC_BNN"]
 
@@ -196,15 +193,20 @@ class VariationalBNN(_SupervisedBNN):
         old_training_state = self.net.training
         self.net.train(True)
 
+        # loss = TraceMeanField_ELBO(num_particles) if closed_form_kl else Trace_ELBO(num_particles)
         loss = TraceMeanField_ELBO(num_particles) if closed_form_kl else Trace_ELBO(num_particles)
-        svi = SVI(self.model, self.guide, optim, loss=loss)
-
+        svi = SVI(self.model, self.guide, optim, loss=loss)    
+        start_time_epoch = time.time()
         for i in range(num_epochs):
             elbo = 0.
             num_batch = 1
-            for num_batch, (input_data, observation_data) in enumerate(iter(data_loader), 1):
+            start_time_batch = time.time()
+            for (input_data, observation_data) in data_loader:
                 elbo += svi.step(tuple(_to(input_data, device)), tuple(_to(observation_data, device))[0])
-
+                if num_batch % 10 == 0:
+                    print(num_batch, time.time() - start_time_batch)
+                    start_time_batch = time.time()
+                num_batch += 1
             # the callback can stop training by returning True
             if callback is not None and callback(self, i, elbo / num_batch):
                 break
